@@ -17,6 +17,8 @@ pub use data_structures::*;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
+pub mod constraints;
+
 /// A polynomial commitment scheme based on the hardness of the
 /// discrete logarithm problem in prime-order groups.
 /// The construction is described in detail in [[BCMS20]][pcdas].
@@ -102,31 +104,21 @@ where
         let mut combined_commitment_proj = G::Projective::zero();
         let mut combined_v = G::ScalarField::zero();
 
-        let mut opening_challenge_counter = 0;
-        let mut cur_challenge = opening_challenges(opening_challenge_counter);
-        opening_challenge_counter += 1;
-
-        let labeled_commitments = commitments.into_iter();
-        let values = values.into_iter();
-
-        for (labeled_commitment, value) in labeled_commitments.zip(values) {
+        for (i, (labeled_commitment, value)) in commitments.into_iter().zip(values).enumerate() {
+            let cur_challenge = opening_challenges((2 * i) as u64);
             let commitment = labeled_commitment.commitment();
             combined_v += &(cur_challenge * &value);
-            combined_commitment_proj += &labeled_commitment.commitment().comm.mul(cur_challenge);
-            cur_challenge = opening_challenges(opening_challenge_counter);
-            opening_challenge_counter += 1;
+            combined_commitment_proj += &commitment.comm.mul(cur_challenge);
 
             let degree_bound = labeled_commitment.degree_bound();
             assert_eq!(degree_bound.is_some(), commitment.shifted_comm.is_some());
 
             if let Some(degree_bound) = degree_bound {
+                let cur_challenge = opening_challenges((2 * i + 1) as u64);
                 let shift = point.pow([(vk.supported_degree() - degree_bound) as u64]);
                 combined_v += &(cur_challenge * &value * &shift);
                 combined_commitment_proj += &commitment.shifted_comm.unwrap().mul(cur_challenge);
             }
-
-            cur_challenge = opening_challenges(opening_challenge_counter);
-            opening_challenge_counter += 1;
         }
 
         let mut combined_commitment = combined_commitment_proj.into_affine();
@@ -162,7 +154,7 @@ where
 
         let h_prime = vk.h.mul(round_challenge);
 
-        let mut round_commitment_proj = combined_commitment_proj + &h_prime.mul(combined_v);
+        let mut round_commitment_proj = combined_commitment_proj + &h_prime.mul(combined_v.into());
 
         let l_iter = proof.l_vec.iter();
         let r_iter = proof.r_vec.iter();
@@ -603,8 +595,8 @@ where
             let hiding_challenge = sponge.squeeze_field_elements(1).pop().unwrap();
             combined_polynomial += (hiding_challenge, &hiding_polynomial);
             combined_rand += &(hiding_challenge * &hiding_rand);
-            combined_commitment_proj +=
-                &(hiding_commitment_proj.mul(hiding_challenge) - &ck.s.mul(combined_rand));
+            combined_commitment_proj += &(hiding_commitment_proj.mul(hiding_challenge.into())
+                - &ck.s.mul(combined_rand.into()));
 
             end_timer!(hiding_time);
         }
@@ -838,7 +830,7 @@ where
 
             let check_poly = P::from_coefficients_vec(check_poly.unwrap().compute_coeffs());
             combined_check_poly += (randomizer, &check_poly);
-            combined_final_key += &p.final_comm_key.into_projective().mul(randomizer);
+            combined_final_key += &p.final_comm_key.into_projective().mul(randomizer.into());
 
             randomizer = u128::rand(rng).into();
             end_timer!(lc_time);
@@ -1064,13 +1056,15 @@ mod tests {
     use ark_ed_on_bls12_381::{EdwardsAffine, Fr};
     use ark_ff::PrimeField;
     use ark_poly::{univariate::DensePolynomial as DensePoly, UVPolynomial};
-    use ark_sponge::digest_sponge::DigestSponge;
+    //use ark_sponge::digest_sponge::DigestSponge;
+    use ark_sponge::dummy::DummySponge;
     use blake2::Blake2s;
     use sha2::Sha512;
 
     type UniPoly = DensePoly<Fr>;
     type PC<E, D, P, S> = InnerProductArgPC<E, D, P, S>;
-    type PC_JJB2S = PC<EdwardsAffine, Blake2s, UniPoly, DigestSponge<Fr, Sha512>>;
+    type PC_JJB2S =
+        PC<EdwardsAffine, Blake2s, UniPoly, /*DigestSponge<Fr, Sha512>*/ DummySponge>;
 
     fn rand_poly<F: PrimeField>(
         degree: usize,
