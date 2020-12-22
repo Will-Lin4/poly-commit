@@ -126,14 +126,17 @@ where
         let (key_l_1, key_l_2) = key_l.split_at(n / 4);
         let (key_r_1, key_r_2) = key_r.split_at(n / 4);
 
-        let l = Self::cm_commit(key_l_1, coeffs_r, None, None)
-            + &Self::cm_commit(key_r_1, coeffs_r, None, None).mul(round_challenge.into_repr())
-            + &h_prime.mul(Self::inner_product(coeffs_r, z_l));
+        let l_bases = [key_l_1, key_r_1, &[h_prime]].concat();
+        let r_bases = [key_l_2, key_r_2, &[h_prime]].concat();
 
-        let r = Self::cm_commit(key_l_2, coeffs_l, None, None)
-            + &Self::cm_commit(key_r_2, coeffs_l, None, None).mul(round_challenge.into_repr())
-            + &h_prime.mul(Self::inner_product(coeffs_l, z_r));
+        let coeffs_r_round_ch = ark_std::cfg_iter!(coeffs_r).map(|c| round_challenge * c).collect::<Vec<_>>();
+        let coeffs_l_round_ch = ark_std::cfg_iter!(coeffs_l).map(|c| round_challenge * c).collect::<Vec<_>>();
 
+        let l_coeffs = [coeffs_r, &coeffs_r_round_ch, &[Self::inner_product(coeffs_r, z_l)]].concat();
+        let r_coeffs = [coeffs_l, &coeffs_l_round_ch, &[Self::inner_product(coeffs_l, z_r)]].concat();
+
+        let l = Self::cm_commit(&l_bases, &l_coeffs, None, None);
+        let r = Self::cm_commit(&r_bases, &r_coeffs, None, None);
         let lr = G::Projective::batch_normalization_into_affine(&[l, r]);
         (lr[0], lr[1])
     }
@@ -159,10 +162,10 @@ where
                 .zip(key_l_2)
                 .zip(key_r_2)
                 .map(|(((k_l_1, k_r_1), k_l_2), k_r_2)| {
-                    let temp = k_r_1.mul(prev_round_challenge)
-                        + &k_l_2.mul(round_challenge)
-                        + &k_r_2.mul(prev_round_challenge * &round_challenge);
-                    temp.add_mixed(k_l_1)
+                    k_l_2.mul(round_challenge)
+                        .add_mixed(k_l_1)
+                        + &k_r_1.mul(prev_round_challenge)
+                        + &k_r_2.mul(prev_round_challenge * &round_challenge)
                 })
                 .collect::<Vec<_>>()
         };
