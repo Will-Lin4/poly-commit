@@ -649,11 +649,6 @@ where
             cur_z *= point;
         }
         let mut z = z.as_mut_slice();
-
-        // This will be used for transforming the key in each step
-        let mut key_proj: Vec<G::Projective> = ck.comm_key.iter().map(|x| (*x).into()).collect();
-        let mut key_proj = key_proj.as_mut_slice();
-
         let mut temp;
 
         // Key for MSM
@@ -668,7 +663,6 @@ where
             let (coeffs_l, coeffs_r) = coeffs.split_at_mut(n / 2);
             let (z_l, z_r) = z.split_at_mut(n / 2);
             let (key_l, key_r) = comm_key.split_at(n / 2);
-            let (key_proj_l, _) = key_proj.split_at_mut(n / 2);
 
             let l = Self::cm_commit(key_l, coeffs_r, None, None)
                 + &h_prime.mul(Self::inner_product(coeffs_r, z_l));
@@ -697,15 +691,15 @@ where
                 .zip(z_r)
                 .for_each(|(z_l, z_r)| *z_l += &(round_challenge * &*z_r));
 
-            ark_std::cfg_iter_mut!(key_proj_l)
+            let key_proj = ark_std::cfg_iter!(key_l)
                 .zip(key_r)
-                .for_each(|(k_l, k_r)| *k_l += &(k_r.mul(round_challenge)));
+                .map(|(k_l, k_r)| (k_r.mul(round_challenge)).add_mixed(&k_l))
+                .collect::<Vec<_>>();
 
             coeffs = coeffs_l;
             z = z_l;
 
-            key_proj = key_proj_l;
-            temp = G::Projective::batch_normalization_into_affine(key_proj);
+            temp = G::Projective::batch_normalization_into_affine(&key_proj);
             comm_key = &temp;
 
             n /= 2;
