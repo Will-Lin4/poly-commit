@@ -77,6 +77,100 @@ where
         comm
     }
 
+    fn even_commitment_step(
+        comm_key: &[G],
+        h_prime: G,
+        (coeffs_l, coeffs_r): (&[G::ScalarField], &[G::ScalarField]),
+        (z_l, z_r): (&[G::ScalarField], &[G::ScalarField]),
+    ) -> (G, G) {
+        let n = comm_key.len();
+        let (key_l, key_r) = comm_key.split_at(n / 2);
+
+        let l = Self::cm_commit(key_l, coeffs_r, None, None)
+            + &h_prime.mul(Self::inner_product(coeffs_r, z_l));
+
+        let r = Self::cm_commit(key_r, coeffs_l, None, None)
+            + &h_prime.mul(Self::inner_product(coeffs_l, z_r));
+
+        let lr = G::Projective::batch_normalization_into_affine(&[l, r]);
+        (lr[0], lr[1])
+    }
+
+    fn even_folding_step(
+        comm_key: &[G],
+        round_challenge: G::ScalarField,
+    ) -> Vec<G> {
+        let n = comm_key.len();
+        let (key_l, key_r) = comm_key.split_at(n / 2);
+        if n == 2 {
+            let temp = ark_std::cfg_iter!(key_l)
+                .zip(key_r)
+                .map(|(k_l, k_r)| k_r.mul(round_challenge).add_mixed(k_l))
+                .collect::<Vec<_>>();
+            G::Projective::batch_normalization_into_affine(&temp)
+        } else {
+            comm_key.to_vec()
+        }
+    }
+
+    fn odd_commitment_step(
+        comm_key: &[G],
+        h_prime: G,
+        round_challenge: G::ScalarField,
+        (coeffs_l, coeffs_r): (&[G::ScalarField], &[G::ScalarField]),
+        (z_l, z_r): (&[G::ScalarField], &[G::ScalarField]),
+    ) -> (G, G) {
+        let n = comm_key.len();
+        let (key_l, key_r) = comm_key.split_at(n / 2);
+        assert_eq!(key_l.len(), key_r.len());
+        let (key_l_1, key_l_2) = key_l.split_at(n / 4);
+        let (key_r_1, key_r_2) = key_r.split_at(n / 4);
+
+        let l = Self::cm_commit(key_l_1, coeffs_r, None, None)
+            + &Self::cm_commit(key_r_1, coeffs_r, None, None).mul(round_challenge.into_repr())
+            + &h_prime.mul(Self::inner_product(coeffs_r, z_l));
+
+        let r = Self::cm_commit(key_l_2, coeffs_l, None, None)
+            + &Self::cm_commit(key_r_2, coeffs_l, None, None).mul(round_challenge.into_repr())
+            + &h_prime.mul(Self::inner_product(coeffs_l, z_r));
+
+        let lr = G::Projective::batch_normalization_into_affine(&[l, r]);
+        (lr[0], lr[1])
+    }
+
+    fn odd_folding_step(
+        comm_key: &[G],
+        prev_round_challenge: G::ScalarField,
+        round_challenge: G::ScalarField,
+    ) -> Vec<G> {
+        let n = comm_key.len();
+        let (key_l, key_r) = comm_key.split_at(n / 2);
+        let key_proj = if n == 2 {
+            ark_std::cfg_iter!(key_l)
+                .zip(key_r)
+                .map(|(k_l, k_r)| k_r.mul(prev_round_challenge).add_mixed(k_l))
+                .collect::<Vec<_>>()
+        } else {
+            let (key_l_1, key_l_2) = key_l.split_at(n / 4);
+            let (key_r_1, key_r_2) = key_r.split_at(n / 4);
+
+            ark_std::cfg_iter!(key_l_1)
+                .zip(key_r_1)
+                .zip(key_l_2)
+                .zip(key_r_2)
+                .map(|(((k_l_1, k_r_1), k_l_2), k_r_2)| {
+                    let temp = k_r_1.mul(prev_round_challenge)
+                        + &k_l_2.mul(round_challenge)
+                        + &k_r_2.mul(prev_round_challenge * &round_challenge);
+                    temp.add_mixed(k_l_1)
+                })
+                .collect::<Vec<_>>()
+        };
+
+        G::Projective::batch_normalization_into_affine(&key_proj)
+    }
+
+
     #[inline]
     fn inner_product(l: &[G::ScalarField], r: &[G::ScalarField]) -> G::ScalarField {
         ark_std::cfg_iter!(l).zip(r).map(|(li, ri)| *li * ri).sum()
@@ -659,27 +753,38 @@ where
         let mut r_vec = Vec::with_capacity(log_d);
 
         let mut n = d + 1;
+        let mut i = 0;
         while n > 1 {
             let (coeffs_l, coeffs_r) = coeffs.split_at_mut(n / 2);
             let (z_l, z_r) = z.split_at_mut(n / 2);
-            let (key_l, key_r) = comm_key.split_at(n / 2);
+            let (l, r) = if i % 2 == 0 {
+                Self::even_commitment_step(
+                    comm_key,
+                    h_prime,
+                    (coeffs_l, coeffs_r),
+                    (z_l, z_r),
+                )
+            } else {
+                Self::odd_commitment_step(
+                    comm_key,
+                    h_prime,
+                    round_challenge,
+                    (coeffs_l, coeffs_r),
+                    (z_l, z_r),
+                )
+            };
 
-            let l = Self::cm_commit(key_l, coeffs_r, None, None)
-                + &h_prime.mul(Self::inner_product(coeffs_r, z_l));
+            l_vec.push(l);
+            r_vec.push(r);
 
-            let r = Self::cm_commit(key_r, coeffs_l, None, None)
-                + &h_prime.mul(Self::inner_product(coeffs_l, z_r));
-
-            let lr = G::Projective::batch_normalization_into_affine(&[l, r]);
-            l_vec.push(lr[0]);
-            r_vec.push(lr[1]);
 
             let mut sponge = S::new();
             absorb![
                 &mut sponge,
                 &round_challenge,
-                &ark_ff::to_bytes![lr[0], lr[1]].unwrap()
+                &ark_ff::to_bytes![l, r].unwrap()
             ];
+            let prev_round_challenge = round_challenge;
             round_challenge = sponge.squeeze_field_elements(1).pop().unwrap();
             let round_challenge_inv = round_challenge.inverse().unwrap();
 
@@ -691,17 +796,18 @@ where
                 .zip(z_r)
                 .for_each(|(z_l, z_r)| *z_l += &(round_challenge * &*z_r));
 
-            let key_proj = ark_std::cfg_iter!(key_l)
-                .zip(key_r)
-                .map(|(k_l, k_r)| (k_r.mul(round_challenge)).add_mixed(&k_l))
-                .collect::<Vec<_>>();
 
             coeffs = coeffs_l;
             z = z_l;
 
-            temp = G::Projective::batch_normalization_into_affine(&key_proj);
+            temp = if i % 2 == 0 {
+                Self::even_folding_step(comm_key, round_challenge)
+            } else {
+                Self::odd_folding_step(comm_key, prev_round_challenge, round_challenge)
+            };
             comm_key = &temp;
 
+            i += 1;
             n /= 2;
         }
 
