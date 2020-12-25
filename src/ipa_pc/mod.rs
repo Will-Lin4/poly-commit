@@ -537,10 +537,14 @@ where
                 Randomness::empty()
             };
 
-            let main_commit_time = start_timer!(|| "Unshifted commitment");
+            let main_commit_time = start_timer!(|| format!(
+                "Unshifted commitment with key size {} and degree {}",
+                polynomial.degree() + 1,
+                polynomial.coeffs().len(),
+            ));
             let comm = Self::cm_commit(
                 &ck.comm_key[..(polynomial.degree() + 1)],
-                &polynomial.coeffs(),
+                polynomial.coeffs(),
                 Some(ck.s),
                 Some(randomness.rand),
             )
