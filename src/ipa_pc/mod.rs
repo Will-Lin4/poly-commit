@@ -544,13 +544,15 @@ where
                 polynomial.degree() + 1,
                 polynomial.coeffs().len(),
             ));
+            let ck_elems = ck.comm_key[..(polynomial.degree() + 1)].to_vec();
             let comm = Self::cm_commit(
-                &ck.comm_key,
+                &ck_elems,
                 polynomial.coeffs(),
                 Some(ck.s),
                 Some(randomness.rand),
             )
             .into();
+            drop(ck_elems);
             end_timer!(main_commit_time);
 
             let shifted_commit_time = start_timer!(|| "Shifted commitment");
