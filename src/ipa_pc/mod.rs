@@ -63,11 +63,13 @@ where
         hiding_generator: Option<G>,
         randomizer: Option<G::ScalarField>,
     ) -> G::Projective {
+        let comm_time = start_timer!(|| "cm_commit");
         let scalars_bigint = ark_std::cfg_iter!(scalars)
             .map(|s| s.into_repr())
             .collect::<Vec<_>>();
 
         let mut comm = VariableBaseMSM::multi_scalar_mul(comm_key, &scalars_bigint);
+        end_timer!(comm_time);
 
         if randomizer.is_some() {
             assert!(hiding_generator.is_some());
