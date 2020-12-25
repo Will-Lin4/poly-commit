@@ -57,6 +57,7 @@ where
 
     /// Create a Pedersen commitment to `scalars` using the commitment key `comm_key`.
     /// Optionally, randomize the commitment using `hiding_generator` and `randomizer`.
+    #[inline]
     fn cm_commit(
         comm_key: &[G],
         scalars: &[G::ScalarField],
@@ -544,15 +545,13 @@ where
                 polynomial.degree() + 1,
                 polynomial.coeffs().len(),
             ));
-            let ck_elems = ck.comm_key[..(polynomial.degree() + 1)].to_vec();
             let comm = Self::cm_commit(
-                &ck_elems,
+                &ck.comm_key[..(polynomial.degree() + 1)],
                 polynomial.coeffs(),
                 Some(ck.s),
                 Some(randomness.rand),
             )
             .into();
-            drop(ck_elems);
             end_timer!(main_commit_time);
 
             let shifted_commit_time = start_timer!(|| "Shifted commitment");
