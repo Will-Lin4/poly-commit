@@ -545,7 +545,7 @@ where
                 polynomial.coeffs().len(),
             ));
             let comm = Self::cm_commit(
-                &ck.comm_key[..(polynomial.degree() + 1)],
+                &ck.comm_key,
                 polynomial.coeffs(),
                 Some(ck.s),
                 Some(randomness.rand),
