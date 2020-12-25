@@ -537,6 +537,7 @@ where
                 Randomness::empty()
             };
 
+            let main_commit_time = start_timer!(|| "Unshifted commitment");
             let comm = Self::cm_commit(
                 &ck.comm_key[..(polynomial.degree() + 1)],
                 &polynomial.coeffs(),
@@ -544,7 +545,9 @@ where
                 Some(randomness.rand),
             )
             .into();
+            end_timer!(main_commit_time);
 
+            let shifted_commit_time = start_timer!(|| "Shifted commitment");
             let shifted_comm = degree_bound.map(|d| {
                 Self::cm_commit(
                     &ck.comm_key[(ck.supported_degree() - d)..],
@@ -554,6 +557,7 @@ where
                 )
                 .into()
             });
+            end_timer!(shifted_commit_time);
 
             let commitment = Commitment { comm, shifted_comm };
             let labeled_comm = LabeledCommitment::new(label.to_string(), commitment, degree_bound);
