@@ -4,7 +4,9 @@ use ark_std::{
     borrow::Borrow,
     marker::PhantomData,
     ops::{AddAssign, MulAssign, SubAssign},
+    io::{Read, Write},
 };
+use ark_serialize::{CanonicalSerialize, CanonicalDeserialize, SerializationError};
 use rand_core::RngCore;
 
 /// Labels a `LabeledPolynomial` or a `LabeledCommitment`.
@@ -95,7 +97,7 @@ pub trait PCProof: Clone + ark_ff::ToBytes {
 /// A polynomial along with information about its degree bound (if any), and the
 /// maximum number of queries that will be made to it. This latter number determines
 /// the amount of protection that will be provided to a commitment for this polynomial.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, CanonicalSerialize, CanonicalDeserialize)]
 pub struct LabeledPolynomial<F: Field, P: Polynomial<F>> {
     label: PolynomialLabel,
     polynomial: Rc<P>,
@@ -201,7 +203,7 @@ impl<C: PCCommitment> LabeledCommitment<C> {
 
 impl<C: PCCommitment> ark_ff::ToBytes for LabeledCommitment<C> {
     #[inline]
-    fn write<W: ark_std::io::Write>(&self, writer: W) -> ark_std::io::Result<()> {
+    fn write<W: Write>(&self, writer: W) -> ark_std::io::Result<()> {
         self.commitment.write(writer)
     }
 }

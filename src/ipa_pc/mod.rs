@@ -52,11 +52,11 @@ pub(crate) fn cm_commit<G: AffineCurve>(
     randomizer: Option<G::ScalarField>,
 ) -> G::Projective {
     let comm_time = start_timer!(|| "cm_commit");
-    let scalars_bigint = ark_std::cfg_iter!(scalars)
+    let scalars = ark_std::cfg_iter!(scalars)
         .map(|s| s.into_repr())
         .collect::<Vec<_>>();
 
-    let mut comm = VariableBaseMSM::multi_scalar_mul(comm_key, &scalars_bigint);
+    let mut comm = VariableBaseMSM::multi_scalar_mul(&comm_key, &scalars);
     end_timer!(comm_time);
 
     if randomizer.is_some() {
@@ -268,7 +268,10 @@ where
             &point,
             &combined_v
         );
-        let mut round_challenge = sponge.squeeze_field_elements(1).pop().unwrap();
+        let mut round_challenge = sponge
+            .squeeze_field_elements_with_sizes(&[ark_sponge::FieldElementSize::Truncated{ num_bits: 128 }])
+            .pop()
+            .unwrap();
 
         let h_prime = vk.h.mul(round_challenge);
 
@@ -747,7 +750,9 @@ where
             point,
             &combined_v
         ];
-        let mut round_challenge = sponge.squeeze_field_elements(1).pop().unwrap();
+        let mut round_challenge = sponge.squeeze_field_elements_with_sizes(
+            &[ark_sponge::FieldElementSize::Truncated{ num_bits: 128 }]
+        ).pop().unwrap();
 
         let h_prime = ck.h.mul(round_challenge).into_affine();
 
