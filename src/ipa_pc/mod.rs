@@ -44,6 +44,29 @@ where
     _sponge: PhantomData<S>,
 }
 
+#[inline]
+pub(crate) fn cm_commit<G: AffineCurve>(
+    comm_key: &[G],
+    scalars: &[G::ScalarField],
+    hiding_generator: Option<G>,
+    randomizer: Option<G::ScalarField>,
+) -> G::Projective {
+    let comm_time = start_timer!(|| "cm_commit");
+    let scalars_bigint = ark_std::cfg_iter!(scalars)
+        .map(|s| s.into_repr())
+        .collect::<Vec<_>>();
+
+    let mut comm = VariableBaseMSM::multi_scalar_mul(comm_key, &scalars_bigint);
+    end_timer!(comm_time);
+
+    if randomizer.is_some() {
+        assert!(hiding_generator.is_some());
+        comm += &hiding_generator.unwrap().mul(randomizer.unwrap());
+    }
+
+    comm
+}
+
 impl<G, D, P, S> InnerProductArgPC<G, D, P, S>
 where
     G: AffineCurve,
@@ -64,20 +87,7 @@ where
         hiding_generator: Option<G>,
         randomizer: Option<G::ScalarField>,
     ) -> G::Projective {
-        let comm_time = start_timer!(|| "cm_commit");
-        let scalars_bigint = ark_std::cfg_iter!(scalars)
-            .map(|s| s.into_repr())
-            .collect::<Vec<_>>();
-
-        let mut comm = VariableBaseMSM::multi_scalar_mul(comm_key, &scalars_bigint);
-        end_timer!(comm_time);
-
-        if randomizer.is_some() {
-            assert!(hiding_generator.is_some());
-            comm += &hiding_generator.unwrap().mul(randomizer.unwrap());
-        }
-
-        comm
+        cm_commit(comm_key, scalars, hiding_generator, randomizer)
     }
 
     fn even_commitment_step(
@@ -446,10 +456,13 @@ where
         _rng: &mut R,
     ) -> Result<Self::UniversalParams, Self::Error> {
         // Ensure that max_degree + 1 is a power of 2
-        let max_degree = (max_degree + 1).next_power_of_two() - 1;
+        let mut max_num_coeffs = max_degree + 1;
+        if !max_num_coeffs.is_power_of_two() {
+            max_num_coeffs = max_num_coeffs.next_power_of_two();
+        }
 
-        let setup_time = start_timer!(|| format!("Sampling {} generators", max_degree + 3));
-        let mut generators = Self::sample_generators(max_degree + 3);
+        let setup_time = start_timer!(|| format!("Sampling {} generators", max_num_coeffs + 2));
+        let mut generators = Self::sample_generators(max_num_coeffs + 2);
         end_timer!(setup_time);
 
         let h = generators.pop().unwrap();
@@ -471,8 +484,11 @@ where
         _enforced_degree_bounds: Option<&[usize]>,
     ) -> Result<(Self::CommitterKey, Self::VerifierKey), Self::Error> {
         // Ensure that supported_degree + 1 is a power of two
-        let supported_degree = (supported_degree + 1).next_power_of_two() - 1;
-        if supported_degree > pp.max_degree() {
+        let mut supported_num_coeffs = supported_degree + 1;
+        if !supported_num_coeffs.is_power_of_two() {
+            supported_num_coeffs = supported_num_coeffs.next_power_of_two();
+        }
+        if supported_num_coeffs > (pp.max_degree() + 1) {
             return Err(Error::TrimmingDegreeTooLarge);
         }
 
@@ -480,18 +496,13 @@ where
             start_timer!(|| format!("Trimming to supported degree of {}", supported_degree));
 
         let ck = CommitterKey {
-            comm_key: pp.comm_key[0..(supported_degree + 1)].to_vec(),
+            comm_key: pp.comm_key[0..supported_num_coeffs].to_vec(),
             h: pp.h.clone(),
             s: pp.s.clone(),
             max_degree: pp.max_degree(),
         };
 
-        let vk = VerifierKey {
-            comm_key: pp.comm_key[0..(supported_degree + 1)].to_vec(),
-            h: pp.h.clone(),
-            s: pp.s.clone(),
-            max_degree: pp.max_degree(),
-        };
+        let vk = ck.clone();
 
         end_timer!(trim_time);
 
